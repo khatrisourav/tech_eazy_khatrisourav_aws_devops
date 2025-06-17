@@ -1,3 +1,16 @@
-The main file is main.tf , and i was create a one security group for EC2 instance that allows SSH and http inbound traffic to EC2 and outboud traffic for that EC2 to anywhere.
-user_data = file("${path.module}/java.sh") The file which will launch the java in EC2 is java.sh and deploy the app all configuration of installing the java , test if the app is reachable via port 80 or not , and shutdown the instance all things are in this file . The deployment of java application is tested and successfully deployed on ubuntu free tier ami or redhat 
-Variables.tf this is the file from where the ami-id , instance-type, variables is comes.
+# Java Application Deployment on EC2 using Terraform
+
+## Description
+This Terraform setup launches an EC2 instance with a security group that allows SSH (port 22) and HTTP (port 80). The instance is provisioned using `user_data` via `java.sh`, which installs Java, compiles and runs a Java app, and serves the output via Apache. It automatically shuts down after 5 minutes.
+
+## Files
+- **main.tf**: AWS resources like EC2 and security group.
+- **variables.tf**: AMI ID, instance type, and key name as inputs. you can use for change this 
+- **java.sh**: Shell script to install Java and deploy app.
+
+
+## Usage
+2. Run:
+```bash
+terraform init
+terraform apply
