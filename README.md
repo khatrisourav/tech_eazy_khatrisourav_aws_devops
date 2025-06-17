@@ -1,1 +1,3 @@
-The main file is main.tf 
+The main file is main.tf , and i was create a one security group for EC2 instance that allows SSH and http inbound traffic to EC2 and outboud traffic for that EC2 to anywhere.
+user_data = file("${path.module}/java.sh") The file which will launch the java in EC2 is java.sh and deploy the app all configuration of installing the java , test if the app is reachable via port 80 or not , and shutdown the instance all things are in this file . The deployment of java application is tested and successfully deployed on ubuntu free tier ami or redhat 
+Variables.tf this is the file from where the ami-id , instance-type, variables is comes.
