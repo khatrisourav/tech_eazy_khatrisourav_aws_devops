@@ -1,0 +1,110 @@
+name: Deploy Teacheazy App New version12345
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - deploy-*
+
+jobs:
+  deploy:
+    name: Deploy Infra + App
+    runs-on: ubuntu-latest
+
+    env:
+      STAGE: dev
+
+    steps:
+      - name: ⬇️ Checkout Code
+        uses: actions/checkout@v3
+
+      - name: ⚙️ Set Up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+
+      - name: 🔐 Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: 🧱 Terraform Init
+        working-directory: ./terraform
+        run: terraform init
+
+      - name: 🚀 Terraform Apply
+        working-directory: ./terraform
+        run: terraform apply -auto-approve -var="stage=${{ env.STAGE }}"
+
+      - name: 🌍 Get EC2 IP and Bucket Name (Safe)
+        working-directory: ./terraform
+        run: |
+          EC2_IP=$(terraform output -raw ec2_public_ip 2>/dev/null || echo "")
+          BUCKET_NAME=$(terraform output -raw bucket_name 2>/dev/null || echo "")
+
+          if [ -n "$EC2_IP" ]; then
+            echo "EC2_IP=$EC2_IP" >> $GITHUB_ENV
+            echo "✅ EC2 IP: $EC2_IP"
+          else
+            echo "⚠️ No EC2 IP found"
+          fi
+
+          if [ -n "$BUCKET_NAME" ]; then
+            echo "BUCKET_NAME=$BUCKET_NAME" >> $GITHUB_ENV
+            echo "✅ S3 Bucket: $BUCKET_NAME"
+          else
+            echo "⚠️ No bucket_name found"
+          fi
+
+      - name: 🕐 Wait for EC2 to Boot
+        run: sleep 60
+
+      - name: 🔑 Save EC2 Private Key
+        run: |
+          echo "${{ secrets.EC2_PRIVATE_KEY }}" > key.pem
+          chmod 600 key.pem
+
+      - name: Run Setup Script on EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ env.EC2_IP }} 'sudo apt update && sudo apt install -y curl && bash -s' < ./scripts/setup.sh
+
+      - name: 📦 Deploy App on EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ env.EC2_IP }} 'bash -s' < ./scripts/deploy.sh
+
+      - name: ☁️ Upload Logs to S3
+        run: |
+          ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ env.EC2_IP }} 'bash -s' < ./scripts/uploadlog.sh
+
+      - name: ✅ Validate App Health (Non-Blocking)
+        continue-on-error: true
+        run: |
+          APP_RUNNING=false
+          for i in {1..10}; do
+            if curl -s --head http://${{ env.EC2_IP }} | grep "200 OK" > /dev/null; then
+              echo "✅ App is running."
+              APP_RUNNING=true
+              break
+            else
+              echo "⏳ Waiting for app to start... ($i/10)"
+              sleep 10
+            fi
+          done
+
+          if [ "$APP_RUNNING" = false ]; then
+            echo "❌ App did not start after 100 seconds."
+          fi
+
+      - name: ⏳ Wait 25 Minutes Before Cleanup
+        run: sleep 500  # 25 * 60 seconds
+
+      - name: 🧹 Empty S3 Bucket Before Destroy
+        if: env.BUCKET_NAME != ''
+        run: aws s3 rm s3://${{ env.BUCKET_NAME }} --recursive || true
+
+      - name: 🔥 Terraform Destroy Infra
+        working-directory: ./terraform
+        run: terraform destroy -auto-approve -var="stage=${{ env.STAGE }}"
+
